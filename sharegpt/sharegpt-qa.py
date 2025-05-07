@@ -82,8 +82,11 @@ class RequestExecutor:
         body = ""
 
         try:
-            stream = await self.client.chat.completions.create(
-                messages=messages,
+            # Concatenate all messages with role labels
+            prompt = "\n".join([f"{msg['role'].upper()}: {msg['content']}" for msg in messages])
+            
+            stream = await self.client.completions.create(
+                prompt=prompt,
                 model=self.model,
                 temperature=0,
                 stream=True,
@@ -94,7 +97,7 @@ class RequestExecutor:
             async for chunk in stream:
                 if not chunk.choices:
                     continue
-                delta = chunk.choices[0].delta.content
+                delta = chunk.choices[0].text
                 if delta:
                     if first_token is None:
                         first_token = time.time()
