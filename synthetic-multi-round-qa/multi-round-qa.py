@@ -143,8 +143,46 @@ class RequestExecutor:
             start_time = time.time()
             first_token_time = None
 
-            # Make the request
-            prompt = "\n".join([f"{msg['role'].upper()}: {msg['content']}" for msg in messages])
+            # Build prompt for LLaMA 3 Instruct
+            prompt = ""
+            system_msg = ""
+            history = []
+            
+            # Separate roles
+            for msg in messages:
+                if msg["role"] == "system":
+                    system_msg = msg["content"]
+                elif msg["role"] in ("user", "assistant"):
+                    history.append((msg["role"], msg["content"]))
+            
+            # Start with beginning of first prompt
+            prompt += "<s>"
+            
+            # Track whether we've inserted the system prompt
+            system_inserted = False
+            
+            for i in range(0, len(history), 2):
+                # Expecting user then assistant
+                user_msg = history[i][1]
+            
+                # System prompt is inserted once in the first user message
+                if not system_inserted:
+                    prompt += f"[INST] <<SYS>>{system_msg.strip()}<</SYS>>{user_msg.strip()} [/INST]"
+                    system_inserted = True
+                else:
+                    prompt += f"[INST] {user_msg.strip()} [/INST]"
+            
+                # Check if assistant reply exists
+                if i + 1 < len(history) and history[i + 1][0] == "assistant":
+                    assistant_msg = history[i + 1][1]
+                    prompt += f" {assistant_msg.strip()} </s><s>"
+                else:
+                    # No assistant reply → this is the generation target
+                    break
+            
+            # Strip trailing <s> if we aren't going to start another turn
+            prompt = prompt.rstrip("<s>")
+            
             response = await self.client.completions.create(
                 model=self.model,
                 prompt = prompt,
