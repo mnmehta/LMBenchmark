@@ -144,9 +144,10 @@ class RequestExecutor:
             first_token_time = None
 
             # Make the request
-            response = await self.client.chat.completions.create(
+            prompt = "\n".join([f"{msg['role'].upper()}: {msg['content']}" for msg in messages])
+            response = await self.client.completions.create(
                 model=self.model,
-                messages=messages,
+                prompt = prompt,
                 stream=True,
                 max_tokens=max_tokens,
                 temperature=0.0,
@@ -160,10 +161,10 @@ class RequestExecutor:
                     continue
                     
                 # Handle content
-                if chunk.choices[0].delta.content is not None:
-                    if first_token_time is None and chunk.choices[0].delta.content != "":
+                if chunk.choices[0].text is not None:
+                    if first_token_time is None and chunk.choices[0].text != "":
                         first_token_time = time.time()
-                    words += chunk.choices[0].delta.content
+                    words += chunk.choices[0].text
                 
             # Handle token counts if available
             if hasattr(chunk, 'usage') and chunk.usage is not None:
