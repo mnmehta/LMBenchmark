@@ -113,6 +113,65 @@ class Response:
     launch_time: float
     finish_time: float
 
+def build_llama3_prompt_for_completion(messages: list[dict]) -> str:
+    """
+    Builds a prompt string for a Llama 3.1 instruct model's completion endpoint
+    from a list of messages.
+
+    The Llama 3.1 instruct format is generally:
+    <|begin_of_text|>
+    <|start_header_id|>system<|end_header_id|>
+
+    {{ system_prompt }}<|eot_id|>
+    <|start_header_id|>user<|end_header_id|>
+
+    {{ user_message_1 }}<|eot_id|>
+    <|start_header_id|>assistant<|end_header_id|>
+
+    {{ assistant_response_1 }}<|eot_id|>
+    ...
+    <|start_header_id|>user<|end_header_id|>
+
+    {{ user_message_n }}<|eot_id|>
+    <|start_header_id|>assistant<|end_header_id|>
+
+    (The model starts generating here)
+
+    Args:
+        messages: A list of message dictionaries, where each dictionary
+                  should have a "role" (system, user, or assistant)
+                  and "content". The messages should be in chronological order.
+
+    Returns:
+        A formatted prompt string suitable for Llama 3.1 instruct completion.
+    """
+
+    # The <|begin_of_text|> token is typically added by the tokenizer automatically.
+    # However, when constructing a raw prompt string for some completion endpoints,
+    # it's good practice to include it explicitly to be sure.
+    prompt_parts = ["<|begin_of_text|>"]
+
+    for msg in messages:
+        role = msg.get("role")
+        # Ensure content is a string and strip leading/trailing whitespace.
+        # Use an empty string if content is None or not present.
+        content = str(msg.get("content", "")).strip()
+
+        if role not in ["system", "user", "assistant"]:
+            # You might want to raise an error here or log a more prominent warning
+            # depending on how strict you want to be with input validation.
+            print(f"Warning: Skipping message with unknown or missing role: '{role}'")
+            continue
+
+        prompt_parts.append(f"<|start_header_id|>{role}<|end_header_id|>\n\n{content}<|eot_id|>")
+
+    # This is crucial for a completion endpoint: the prompt must end with the
+    # specific sequence indicating it's the assistant's turn to generate.
+    # The double newline after the assistant header is also important.
+    prompt_parts.append("<|start_header_id|>assistant<|end_header_id|>\n\n")
+
+    return "".join(prompt_parts)
+
 
 class RequestExecutor:
 
@@ -143,46 +202,9 @@ class RequestExecutor:
             start_time = time.time()
             first_token_time = None
 
-            # Build prompt for LLaMA 3 Instruct
-            prompt = ""
-            system_msg = ""
-            history = []
-            
-            # Separate roles
-            for msg in messages:
-                if msg["role"] == "system":
-                    system_msg = msg["content"]
-                elif msg["role"] in ("user", "assistant"):
-                    history.append((msg["role"], msg["content"]))
-            
-            # Start with beginning of first prompt
-            prompt += "<s>"
-            
-            # Track whether we've inserted the system prompt
-            system_inserted = False
-            
-            for i in range(0, len(history), 2):
-                # Expecting user then assistant
-                user_msg = history[i][1]
-            
-                # System prompt is inserted once in the first user message
-                if not system_inserted:
-                    prompt += f"[INST] <<SYS>>{system_msg.strip()}<</SYS>>{user_msg.strip()} [/INST]"
-                    system_inserted = True
-                else:
-                    prompt += f"[INST] {user_msg.strip()} [/INST]"
-            
-                # Check if assistant reply exists
-                if i + 1 < len(history) and history[i + 1][0] == "assistant":
-                    assistant_msg = history[i + 1][1]
-                    prompt += f" {assistant_msg.strip()} </s><s>"
-                else:
-                    # No assistant reply → this is the generation target
-                    break
-            
-            # Strip trailing <s> if we aren't going to start another turn
-            prompt = prompt.rstrip("<s>")
-            
+            prompt = build_llama3_prompt_for_completion(messages)
+
+
             response = await self.client.completions.create(
                 model=self.model,
                 prompt = prompt,
